@@ -25,7 +25,6 @@ for tr=1:Ntraj
     mu_u=[0;0;0;0];
     Sigma_u=diag([2;2;2;2]);
     u=mvnrnd(mu_u, Sigma_u).';
-    % u(1)=max(u(1), 1.2*params.m*params.g);
     u(1) = u(1)+params.m*params.g;
 
     Nsteps=round(T/ts);
@@ -218,7 +217,7 @@ fprintf("omega RMSE = %.4f%%\n", nRMSE_w);
 
 %% MPC implementation
 
-Nh=10;
+Nh=12;
 t_sim=1.2;Ts=0.01;
 Nsim=round(t_sim/Ts);
 p_obs=3;
@@ -318,16 +317,14 @@ ref_steps_per_control = steps;
 
 rng(1); % reproducible
 mu_ref = [2;2;2;2];
-Sigma_ref = diag([30,30,30,30]);
+Sigma_ref = diag([6,6,6,6]);
 
 
 Nref_total = round(t_sim / ref_dt);
 u_ref_high = mvnrnd(mu_ref, Sigma_ref, Nref_total)';   % 4 x Nref_total
 
 for ii=1:Nref_total
-    % if u_ref_high(1,ii) < 0.2*params.m*params.g
-    %     u_ref_high(1,ii) = 0.2*params.m*params.g;
-    % end
+    
     u_ref_high(1,ii) = u_ref_high(1,ii)+params.m*params.g;
 end
 
@@ -354,7 +351,6 @@ for k=1:Nref_total
     x_ref(:,k) = x;
 end
 
-% downsample reference to control-rate times (every Ts)
 ref_idx = 1:ref_steps_per_control:Nref_total;
 Nref_ctrl = length(ref_idx);  % 120
 x_ref_ctrl = x_ref(:, ref_idx);    % n x Nref_ctrl
@@ -412,7 +408,7 @@ for k = 1:Nsim
         Y((i-1)*Nz+1:i*Nz) = z_ref_ctrl(:, idx);
     end
 
-    % Predictive cost terms (conventional expansion)
+    % Predictive cost terms 
    
     H = 2 * (Bqp' * Qbar * Bqp + Rbar);
     f = 2 * (Bqp' * Qbar * (Aqp * z - Y));  
