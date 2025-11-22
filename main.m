@@ -217,7 +217,7 @@ fprintf("omega RMSE = %.4f%%\n", nRMSE_w);
 
 %% MPC implementation
 
-Nh=12;
+Nh=8;
 t_sim=1.2;Ts=0.01;
 Nsim=round(t_sim/Ts);
 p_obs=3;

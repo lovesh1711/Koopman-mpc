@@ -25,26 +25,13 @@ for tr=1:Ntraj
     mu_u=[0;0;0;0];
     Sigma_u=diag([2;2;2;2]);
     u=mvnrnd(mu_u, Sigma_u).';
-    % u(1)=max(u(1), 1.2*params.m*params.g);
     u(1) = u(1)+params.m*params.g;
 
     Nsteps=round(T/ts);
     for k=1:Nsteps
         x_k=x;
         for j=1:steps
-            % xdot=quad_dynamics(0,x,u,params);
-            % x=x+dt*xdot;
             x = rk4_step(x, u, params, dt);
-
-            R=reshape(x(7:15),3,3);
-            [U,~,V]=svd(R);
-            D = eye(3);
-            if det(U*V') < 0
-                D(3,3) = -1;
-            end
-            R = U * D * V';
-            % R       = U*V.';
-            x(7:15) = R(:);
         end
         x_kp1=x;
         X_list{end+1}=x_k;
@@ -127,19 +114,7 @@ for tr = 1:Nval_traj
         % --- true nonlinear propagation over one sample period ---
         x = x_true;
         for j = 1:steps
-            % xdot = quad_dynamics(0,x,u,params);
-            % x    = x + dt*xdot;
             x = rk4_step(x, u, params, dt);
-
-            % reproject R to SO(3)
-            Rmat = reshape(x(7:15),3,3);
-            [U_,~,V_] = svd(Rmat);
-            D = eye(3);
-            if det(U_*V_') < 0
-                D(3,3) = -1;
-            end
-            Rmat = U_ * D * V_';
-            x(7:15)     = Rmat(:);
         end
         x_true = x;
 
@@ -216,10 +191,9 @@ fprintf("velocity RMSE = %.4f%%\n", nRMSE_v);
 fprintf("theta RMSE = %.4f%%\n", nRMSE_theta);
 fprintf("omega RMSE = %.4f%%\n", nRMSE_w);
 
-%% MPC implementation
-u_hover = [params.m * params.g; 0; 0; 0];     % hover input
+% MPC implementation
 
-Nh=5;
+Nh=10;
 t_sim=1.2;Ts=0.01;
 Nsim=round(t_sim/Ts);
 p_obs=3;
@@ -244,10 +218,10 @@ end
 
 
 % weighing matrices
-w_p = 200;
-w_v = 150;
-w_theta = 1;
-w_w = 180;
+w_p = 1000;
+w_v = 20;
+w_theta = 2000;
+w_w = 10;
 
 Qx_pos   = w_p * eye(3);
 Qx_vel   = w_v * eye(3);
@@ -256,19 +230,19 @@ Qx_omega = w_w * eye(3);
 % Temporarily leave R block zeros 
 Qx_Rblock = zeros(9,9);
 
-w_ft = 10;
-w_M  = 150;
-Ru = diag([w_ft, w_M, w_M, w_M]);
+
 
 
 Qtilde = zeros(Nz, Nz);
 
 
+% Build linear mapping L (3 x 9) such that theta ≈ L * R(:) (small-angle)
+% ordering of R(:) is column-major: [R11; R21; R31; R12; R22; R32; R13; R23; R33]
 L = zeros(3,9);
 % theta1 = 0.5*(R32 - R23)
 % indices: R(3,2) is element (row3,col2) -> column-major index: (col-1)*3 + row = (2-1)*3 +3 = 6
 % R(2,3) -> (3-1)*3 +2 = 8
-L(1,6) = 1;   % R32
+L(1,6) = 0.5;   % R32
 L(1,8) = -0.5;  % -R23
 
 % theta2 = 0.5*(R13 - R31)
@@ -289,35 +263,29 @@ Q_theta = w_theta * eye(3);
 
 % Now convert to a 9x9 penalty on R(:): Q_R = L' * Q_theta * L
 Q_R = L' * Q_theta * L;
-% Q_R=1*ones(1,9);
 Qx = blkdiag(Qx_pos, Qx_vel, Qx_Rblock, Qx_omega);
 
 % Place into Qx
 Qx(7:15, 7:15) = Q_R;
 % Now Qx has position, velocity, R penalized via theta-approx, omega...
-% Qx = diag([w_p,w_p,w_p, w_v,w_v,w_v, w_theta*ones(1,9), w_w,w_w,w_w]); % n x n
-
 Qtilde(1:n,1:n) = Qx;
 Qbar = kron(eye(Nh), Qtilde);
 
-
+w_ft = 0.001;
+w_M  = 10;
+Ru = diag([w_ft, w_M, w_M, w_M]);
 
 
 Rbar = kron(eye(Nh), Ru);
 
 % constraints
-% ft_min = 10 ;
-% ft_max = 80;
-% M_max = 2;
-% M_min = -2;
-% 
-% U_lb = repmat([ft_min; M_min; M_min; M_min], Nh, 1);
-% U_ub = repmat([ft_max; M_max; M_max; M_max], Nh, 1);
-dft_max = 30; dft_min = -30;   % allow +- 30 N around hover
-dM_max  = 2;  dM_min  = -2;
+ft_min = 10 ;
+ft_max = 80;
+M_max = 2;
+M_min = -2;
 
-U_lb = repmat([dft_min; dM_min; dM_min; dM_min], Nh, 1);
-U_ub = repmat([dft_max; dM_max; dM_max; dM_max], Nh, 1);
+U_lb = repmat([ft_min; M_min; M_min; M_min], Nh, 1);
+U_ub = repmat([ft_max; M_max; M_max; M_max], Nh, 1);
 
 %% Generate a random reference trajectory (higher-rate internal dt -> sample to Ts)
 ref_dt = dt;                       % 0.001 as described
@@ -332,12 +300,8 @@ Nref_total = round(t_sim / ref_dt);
 u_ref_high = mvnrnd(mu_ref, Sigma_ref, Nref_total)';   % 4 x Nref_total
 
 for ii=1:Nref_total
-    % if u_ref_high(1,ii) < 0.2*params.m*params.g
-    %     u_ref_high(1,ii) = 0.2*params.m*params.g;
-    % end
-    % u_ref_high(1,ii) = u_ref_high(1,ii)+params.m*params.g;
-    u_ref_high(1,ii) = u_ref_high(1,ii);   % reference deviation (no +mg)
 
+    u_ref_high(1,ii) = u_ref_high(1,ii)+params.m*params.g;
 end
 
 % simulate reference nonlinear system (so we get reference states)
@@ -346,9 +310,7 @@ x_ref = zeros(n, Nref_total);
 p0 = zeros(3,1); v0=zeros(3,1); R0=eye(3); w0=zeros(3,1);
 x = [p0; v0; R0(:); w0];
 for k=1:Nref_total
-    % ucur = u_ref_high(:,k);
-    ucur = u_hover + u_ref_high(:,k);
-
+    ucur = u_ref_high(:,k);
     for j=1:1 % integrate one dt (we treat each step as dt)
         % xdot = quad_dynamics(0, x, ucur, params);
         % x = x + ref_dt * xdot;
@@ -365,7 +327,6 @@ for k=1:Nref_total
     x_ref(:,k) = x;
 end
 
-% downsample reference to control-rate times (every Ts)
 ref_idx = 1:ref_steps_per_control:Nref_total;
 Nref_ctrl = length(ref_idx);  % 120
 x_ref_ctrl = x_ref(:, ref_idx);    % n x Nref_ctrl
@@ -413,7 +374,6 @@ opts = optimoptions('quadprog','Display','none','Algorithm','interior-point-conv
 
 
 %% MPC LOOP (receding horizon)
-
 for k = 1:Nsim
     % current time index in reference downsample (choose nearest)
     ref_idx_cur = min(k, Nref_ctrl);  % if sim longer than reference, use last point
@@ -424,20 +384,20 @@ for k = 1:Nsim
         Y((i-1)*Nz+1:i*Nz) = z_ref_ctrl(:, idx);
     end
 
-    % Predictive cost terms (conventional expansion)
-   
+    % Predictive cost terms 
+
     H = 2 * (Bqp' * Qbar * Bqp + Rbar);
     f = 2 * (Bqp' * Qbar * (Aqp * z - Y));  
     eps_reg = 1e-6;
     H = H + eps_reg * eye(size(H));
 
     H=0.5*(H+H');
-    
-  
+
+
     try
         [Uopt, ~, exitflag] = quadprog(H, f, [], [], [], [], U_lb, U_ub, [], opts);
         if exitflag <= 0
-            
+
             Uopt = - (H + 1e-6*eye(size(H))) \ f;
 
         end
@@ -446,9 +406,7 @@ for k = 1:Nsim
     end
 
     % apply first control (u0)
-    % u0 = Uopt(1:nu);
-    du = Uopt(1:nu);
-    u0 = u_hover + du;         % actual control to dynamics
+    u0 = Uopt(1:nu);
 
     % store input
     u_traj(:, k) = u0;

@@ -18,20 +18,11 @@ M=u(2:4);
 
 % translational dynamics
 p_dot=v;
-% v_dot=(1/m)*R*[-0;0;ft]-g*e3;
-
-v_dot = R'*(g * e3 - (1 / m) * R * [0;0;ft]); % net accleration
-
-
+v_dot = -R'*(g * e3 - (1 / m) * R * [0;0;ft]); 
 % rotational dynamics
 R_dot=R*hat(omega);
 omega_dot=J\(M-cross(omega,J*omega));
-% omega_dot=J\(M-hat(omega)*J*omega);
 
 x_dot=[p_dot; v_dot; R_dot(:); omega_dot];
-
-
-
-
 
 end
